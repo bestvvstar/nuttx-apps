@@ -33,14 +33,15 @@
 #endif
 
 #ifdef CONFIG_ADBD_NET_INIT
-#include "netutils/netinit.h"
+#  include "netutils/netinit.h"
 #endif
 
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
 
-void adb_log_impl(FAR const char *func, int line, FAR const char *fmt, ...)
+void adb_log_impl(int priority, FAR const char *func, int line,
+                  FAR const char *fmt, ...)
 {
   struct va_format vaf;
   va_list ap;
@@ -48,11 +49,28 @@ void adb_log_impl(FAR const char *func, int line, FAR const char *fmt, ...)
   va_start(ap, fmt);
   vaf.fmt = fmt;
   vaf.va  = &ap;
-  syslog(LOG_ERR, "%s (%d): %pV", func, line, &vaf);
+
+  switch (priority)
+    {
+      case ADB_INFO:
+        priority = LOG_INFO;
+        break;
+      case ADB_ERR:
+        priority = LOG_ERR;
+        break;
+      case ADB_WARN:
+        priority = LOG_WARNING;
+        break;
+      default:
+        priority = LOG_INFO;
+        break;
+    }
+
+  syslog(priority, "%s (%d): %pV", func, line, &vaf);
   va_end(ap);
 }
 
-void adb_reboot_impl(const char *target)
+void adb_reboot_impl(FAR const char *target)
 {
 #ifdef CONFIG_BOARDCTL_RESET
   if (strcmp(target, "recovery") == 0)
@@ -76,6 +94,17 @@ int main(int argc, FAR char **argv)
 {
   adb_context_t *ctx;
 
+#ifdef CONFIG_ADBD_USB_BOARDCTL
+  struct boardioc_usbdev_ctrl_s ctrl;
+#  ifdef CONFIG_USBDEV_COMPOSITE
+  uint8_t usbdev = BOARDIOC_USBDEV_COMPOSITE;
+#  else
+  uint8_t usbdev = BOARDIOC_USBDEV_ADB;
+#  endif
+  FAR void *handle;
+  int ret;
+#endif
+
 #ifdef CONFIG_ADBD_BOARD_INIT
   boardctl(BOARDIOC_INIT, 0);
 #endif /* CONFIG_ADBD_BOARD_INIT */
@@ -83,15 +112,6 @@ int main(int argc, FAR char **argv)
 #ifdef CONFIG_ADBD_USB_BOARDCTL
 
   /* Setup USBADB device */
-
-  struct boardioc_usbdev_ctrl_s ctrl;
-#ifdef CONFIG_USBDEV_COMPOSITE
-  uint8_t usbdev = BOARDIOC_USBDEV_COMPOSITE;
-#else
-  uint8_t usbdev = BOARDIOC_USBDEV_ADB;
-#endif
-  FAR void *handle;
-  int ret;
 
   /* Perform architecture-specific initialization */
 
@@ -133,7 +153,7 @@ int main(int argc, FAR char **argv)
   ctx = adb_hal_create_context();
   if (!ctx)
     {
-      return -1;
+      return 1;
     }
 
   adb_hal_run(ctx);

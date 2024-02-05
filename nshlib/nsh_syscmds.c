@@ -85,6 +85,43 @@
 static const char g_unknown[] = "unknown";
 #endif
 
+#if defined(CONFIG_BOARDCTL_RESET_CAUSE) && !defined(CONFIG_NSH_DISABLE_RESET_CAUSE)
+
+/* Keep update with nuttx kernel definition */
+
+static FAR const char *const g_resetcause[] =
+{
+  "none",
+  "power_on",
+  "rtc_watchdog",
+  "brown_out",
+  "core_soft_reset",
+  "core_deep_sleep",
+  "core_main_watchdog",
+  "core_rtc_watchdog",
+  "cpu_main_watchdog",
+  "cpu_soft_reset",
+  "cpu_rtc_watchdog",
+  "pin",
+  "lowpower",
+  "unkown"
+};
+#endif
+
+#if (defined(CONFIG_BOARDCTL_RESET) && !defined(CONFIG_NSH_DISABLE_REBOOT)) || \
+    (defined(CONFIG_BOARDCTL_RESET_CAUSE) && !defined(CONFIG_NSH_DISABLE_RESET_CAUSE))
+static FAR const char * const g_resetflag[] =
+{
+  "reboot",
+  "assert",
+  "panic",
+  "bootloader",
+  "recovery",
+  "factory",
+  NULL
+};
+#endif
+
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -216,6 +253,11 @@ int cmd_pmconfig(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
       if (argc == 2)
         {
           ctrl.domain = atoi(argv[1]);
+          if (ctrl.domain < 0 || ctrl.domain >= CONFIG_PM_NDOMAINS)
+            {
+              nsh_error(vtbl, g_fmtargrange, argv[1]);
+              return ERROR;
+            }
         }
 
       ctrl.action = BOARDIOC_PM_QUERYSTATE;
@@ -238,6 +280,11 @@ int cmd_pmconfig(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
       if (argc == 4)
         {
           ctrl.domain = atoi(argv[3]);
+          if (ctrl.domain < 0 || ctrl.domain >= CONFIG_PM_NDOMAINS)
+            {
+              nsh_error(vtbl, g_fmtargrange, argv[3]);
+              return ERROR;
+            }
         }
 
       if (strcmp(argv[1], "stay") == 0)
@@ -396,7 +443,26 @@ int cmd_reboot(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
 
   if (argc > 1)
     {
-      boardctl(BOARDIOC_RESET, atoi(argv[1]));
+      int i = 0;
+
+      while (g_resetflag[i] != NULL)
+        {
+          if (strcmp(g_resetflag[i], argv[1]) == 0)
+            {
+              break;
+            }
+
+          i++;
+        }
+
+      if (g_resetflag[i])
+        {
+          boardctl(BOARDIOC_RESET, i);
+        }
+      else
+        {
+          boardctl(BOARDIOC_RESET, atoi(argv[1]));
+        }
     }
   else
     {
@@ -428,51 +494,64 @@ int cmd_reset_cause(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
       return ERROR;
     }
 
-  nsh_output(vtbl, "cause:0x%x,flag:0x%" PRIx32 "\n",
-             cause.cause, cause.flag);
+  if (cause.cause != BOARDIOC_RESETCAUSE_CPU_SOFT)
+    {
+      nsh_output(vtbl, "%s(%lu)\n",
+             g_resetcause[cause.cause], cause.flag);
+    }
+  else
+    {
+      nsh_output(vtbl, "%s(%s)\n",
+             g_resetcause[cause.cause], g_resetflag[cause.flag]);
+    }
+
   return OK;
 }
 #endif
 
 /****************************************************************************
- * Name: cmd_rptun
+ * Name: cmd_rpmsg
  ****************************************************************************/
 
-#if defined(CONFIG_RPTUN) && !defined(CONFIG_NSH_DISABLE_RPTUN)
-static int cmd_rptun_once(FAR struct nsh_vtbl_s *vtbl,
+#if defined(CONFIG_RPMSG) && !defined(CONFIG_NSH_DISABLE_RPMSG)
+static int cmd_rpmsg_once(FAR struct nsh_vtbl_s *vtbl,
                           FAR const char *path, FAR char **argv)
 {
-  struct rptun_ping_s ping;
+#ifdef CONFIG_RPMSG_PING
+  struct rpmsg_ping_s ping;
+#endif
   unsigned long val = 0;
   int cmd;
   int fd;
 
   if (strcmp(argv[1], "start") == 0)
     {
-      cmd = RPTUNIOC_START;
+      cmd = RPMSGIOC_START;
     }
   else if (strcmp(argv[1], "stop") == 0)
     {
-      cmd = RPTUNIOC_STOP;
+      cmd = RPMSGIOC_STOP;
     }
   else if (strcmp(argv[1], "reset") == 0)
     {
       val = atoi(argv[3]);
-      cmd = RPTUNIOC_RESET;
+      cmd = RPMSGIOC_RESET;
     }
   else if (strcmp(argv[1], "panic") == 0)
     {
-      cmd = RPTUNIOC_PANIC;
+      cmd = RPMSGIOC_PANIC;
     }
   else if (strcmp(argv[1], "dump") == 0)
     {
-      cmd = RPTUNIOC_DUMP;
+      cmd = RPMSGIOC_DUMP;
     }
+#ifdef CONFIG_RPMSG_PING
   else if (strcmp(argv[1], "ping") == 0)
     {
       if (argv[3] == 0 || argv[4] == 0 ||
           argv[5] == 0 || argv[6] == 0)
         {
+          nsh_error(vtbl, g_fmtargrequired, argv[0]);
           return ERROR;
         }
 
@@ -481,9 +560,10 @@ static int cmd_rptun_once(FAR struct nsh_vtbl_s *vtbl,
       ping.ack   = atoi(argv[5]);
       ping.sleep = atoi(argv[6]);
 
-      cmd = RPTUNIOC_PING;
+      cmd = RPMSGIOC_PING;
       val = (unsigned long)&ping;
     }
+#endif
   else
     {
       nsh_output(vtbl, g_fmtarginvalid, argv[1]);
@@ -504,7 +584,7 @@ static int cmd_rptun_once(FAR struct nsh_vtbl_s *vtbl,
   return cmd;
 }
 
-static int cmd_rptun_recursive(FAR struct nsh_vtbl_s *vtbl,
+static int cmd_rpmsg_recursive(FAR struct nsh_vtbl_s *vtbl,
                                FAR const char *dirpath,
                                FAR struct dirent *entryp,
                                FAR void *pvarg)
@@ -520,15 +600,70 @@ static int cmd_rptun_recursive(FAR struct nsh_vtbl_s *vtbl,
   path = nsh_getdirpath(vtbl, dirpath, entryp->d_name);
   if (path)
     {
-      ret = cmd_rptun_once(vtbl, path, pvarg);
+      ret = cmd_rpmsg_once(vtbl, path, pvarg);
       free(path);
     }
 
   return ret;
 }
 
+static int cmd_rpmsg_help(FAR struct nsh_vtbl_s *vtbl, int argc,
+                          FAR char **argv)
+{
+  nsh_output(vtbl, "%s <panic|dump> <path>\n", argv[0]);
+  nsh_output(vtbl, "%s ping <path> <times> <length> <ack> "
+             "<period(ms)>\n\n", argv[0]);
+  nsh_output(vtbl, "<times>      Times of rptun ping.\n");
+  nsh_output(vtbl, "<length>     The length of each ping packet.\n");
+  nsh_output(vtbl, "<ack>        Whether the peer acknowlege or "
+             "check data.\n");
+  nsh_output(vtbl, "             0 - No acknowledge and check.\n");
+  nsh_output(vtbl, "             1 - Acknowledge, no data check.\n");
+  nsh_output(vtbl, "             2 - Acknowledge and data check.\n");
+  nsh_output(vtbl, "<period(ms)> ping period (ms) \n");
+  nsh_output(vtbl, "<path>       Rpmsg device path.\n\n");
+  return OK;
+}
+
+int cmd_rpmsg(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
+{
+  if (argc >= 2 && strcmp(argv[1], "-h") == 0)
+    {
+      nsh_output(vtbl, "usage:\n\n");
+      return cmd_rpmsg_help(vtbl, argc, argv);
+    }
+
+  if (argc < 3)
+    {
+      nsh_output(vtbl, g_fmtargrequired, argv[0]);
+      return ERROR;
+    }
+
+  if (strcmp(argv[2], "all") == 0)
+    {
+      return nsh_foreach_direntry(vtbl, "rpmsg", "/dev/rpmsg",
+                                  cmd_rpmsg_recursive, argv);
+    }
+
+  return cmd_rpmsg_once(vtbl, argv[2], argv);
+}
+#endif
+
+/****************************************************************************
+ * Name: cmd_rptun
+ ****************************************************************************/
+
+#if defined(CONFIG_RPTUN) && !defined(CONFIG_NSH_DISABLE_RPTUN)
 int cmd_rptun(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
 {
+  if (argc >= 2 && strcmp(argv[1], "-h") == 0)
+    {
+      nsh_output(vtbl, "usage:\n\n");
+      nsh_output(vtbl, "rptun <start|stop> <path>\n");
+      nsh_output(vtbl, "rptun <reset> <path> <resetvalue>\n");
+      return cmd_rpmsg_help(vtbl, argc, argv);
+    }
+
   if (argc < 3)
     {
       nsh_output(vtbl, g_fmtargrequired, argv[0]);
@@ -538,10 +673,10 @@ int cmd_rptun(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
   if (strcmp(argv[2], "all") == 0)
     {
       return nsh_foreach_direntry(vtbl, "rptun", "/dev/rptun",
-                                  cmd_rptun_recursive, argv);
+                                  cmd_rpmsg_recursive, argv);
     }
 
-  return cmd_rptun_once(vtbl, argv[2], argv);
+  return cmd_rpmsg_once(vtbl, argv[2], argv);
 }
 #endif
 
@@ -700,7 +835,7 @@ int cmd_uname(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
     }
 
   lib_stream_putc(&stream, '\n');
-  nsh_write(vtbl, stream.buffer, stream.public.nput);
+  nsh_write(vtbl, stream.buffer, stream.common.nput);
   return OK;
 }
 #endif
