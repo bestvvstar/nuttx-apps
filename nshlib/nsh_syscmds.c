@@ -24,6 +24,7 @@
 
 #include <nuttx/config.h>
 
+#include <nuttx/power/pm.h>
 #include <nuttx/rptun/rptun.h>
 #include <nuttx/streams.h>
 #include <sys/boardctl.h>
@@ -120,6 +121,15 @@ static FAR const char * const g_resetflag[] =
   "factory",
   NULL
 };
+#endif
+
+/****************************************************************************
+ * Private Types
+ ****************************************************************************/
+
+#if defined(CONFIG_RPMSG) && !defined(CONFIG_NSH_DISABLE_RPMSG)
+typedef CODE int (*cmd_rpmsg_cb_t)(FAR int *cmd, FAR unsigned long * val,
+                                   FAR char **argv);
 #endif
 
 /****************************************************************************
@@ -510,12 +520,39 @@ int cmd_reset_cause(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
 #endif
 
 /****************************************************************************
+ * Name: cmd_irq_affinity
+ ****************************************************************************/
+
+#if defined(CONFIG_BOARDCTL_IRQ_AFFINITY) && !defined(CONFIG_NSH_DISABLE_IRQ_AFFINITY)
+int cmd_irq_affinity(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
+{
+  unsigned int affinity[2];
+
+  if (argc == 3)
+    {
+      affinity[0] = strtoul(argv[1], NULL, 0);
+      affinity[1] = strtoul(argv[2], NULL, 0);
+
+      if (affinity[1] == 0)
+        {
+          affinity[1] = 0x1;
+        }
+
+      return boardctl(BOARDIOC_IRQ_AFFINITY, (uintptr_t)affinity);
+    }
+
+  return ERROR;
+}
+#endif
+
+/****************************************************************************
  * Name: cmd_rpmsg
  ****************************************************************************/
 
 #if defined(CONFIG_RPMSG) && !defined(CONFIG_NSH_DISABLE_RPMSG)
 static int cmd_rpmsg_once(FAR struct nsh_vtbl_s *vtbl,
-                          FAR const char *path, FAR char **argv)
+                          FAR const char *path, FAR char **argv,
+                          cmd_rpmsg_cb_t rpmsg_cb)
 {
 #ifdef CONFIG_RPMSG_PING
   struct rpmsg_ping_s ping;
@@ -524,20 +561,7 @@ static int cmd_rpmsg_once(FAR struct nsh_vtbl_s *vtbl,
   int cmd;
   int fd;
 
-  if (strcmp(argv[1], "start") == 0)
-    {
-      cmd = RPMSGIOC_START;
-    }
-  else if (strcmp(argv[1], "stop") == 0)
-    {
-      cmd = RPMSGIOC_STOP;
-    }
-  else if (strcmp(argv[1], "reset") == 0)
-    {
-      val = atoi(argv[3]);
-      cmd = RPMSGIOC_RESET;
-    }
-  else if (strcmp(argv[1], "panic") == 0)
+  if (strcmp(argv[1], "panic") == 0)
     {
       cmd = RPMSGIOC_PANIC;
     }
@@ -564,6 +588,10 @@ static int cmd_rpmsg_once(FAR struct nsh_vtbl_s *vtbl,
       val = (unsigned long)&ping;
     }
 #endif
+  else if (rpmsg_cb && rpmsg_cb(&cmd, &val, argv) == OK)
+    {
+      /* Nothing */
+    }
   else
     {
       nsh_output(vtbl, g_fmtarginvalid, argv[1]);
@@ -600,7 +628,7 @@ static int cmd_rpmsg_recursive(FAR struct nsh_vtbl_s *vtbl,
   path = nsh_getdirpath(vtbl, dirpath, entryp->d_name);
   if (path)
     {
-      ret = cmd_rpmsg_once(vtbl, path, pvarg);
+      ret = cmd_rpmsg_once(vtbl, path, pvarg, NULL);
       free(path);
     }
 
@@ -611,16 +639,18 @@ static int cmd_rpmsg_help(FAR struct nsh_vtbl_s *vtbl, int argc,
                           FAR char **argv)
 {
   nsh_output(vtbl, "%s <panic|dump> <path>\n", argv[0]);
+#ifdef CONFIG_RPMSG_PING
   nsh_output(vtbl, "%s ping <path> <times> <length> <ack> "
              "<period(ms)>\n\n", argv[0]);
-  nsh_output(vtbl, "<times>      Times of rptun ping.\n");
+  nsh_output(vtbl, "<times>      Number of ping operations.\n");
   nsh_output(vtbl, "<length>     The length of each ping packet.\n");
   nsh_output(vtbl, "<ack>        Whether the peer acknowlege or "
              "check data.\n");
   nsh_output(vtbl, "             0 - No acknowledge and check.\n");
   nsh_output(vtbl, "             1 - Acknowledge, no data check.\n");
   nsh_output(vtbl, "             2 - Acknowledge and data check.\n");
-  nsh_output(vtbl, "<period(ms)> ping period (ms) \n");
+  nsh_output(vtbl, "<sleep(ms)>  Sleep interval between two operations.\n");
+#endif
   nsh_output(vtbl, "<path>       Rpmsg device path.\n\n");
   return OK;
 }
@@ -645,7 +675,7 @@ int cmd_rpmsg(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
                                   cmd_rpmsg_recursive, argv);
     }
 
-  return cmd_rpmsg_once(vtbl, argv[2], argv);
+  return cmd_rpmsg_once(vtbl, argv[2], argv, NULL);
 }
 #endif
 
@@ -654,6 +684,53 @@ int cmd_rpmsg(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
  ****************************************************************************/
 
 #if defined(CONFIG_RPTUN) && !defined(CONFIG_NSH_DISABLE_RPTUN)
+static int cmd_rptun_cb(FAR int *cmd, FAR unsigned long *val,
+                        FAR char **argv)
+{
+  if (strcmp(argv[1], "start") == 0)
+    {
+      *cmd = RPTUNIOC_START;
+    }
+  else if (strcmp(argv[1], "stop") == 0)
+    {
+      *cmd = RPTUNIOC_STOP;
+    }
+  else if (strcmp(argv[1], "reset") == 0)
+    {
+      *val = atoi(argv[3]);
+      *cmd = RPTUNIOC_RESET;
+    }
+  else
+    {
+      return ERROR;
+    }
+
+  return OK;
+}
+
+static int cmd_rptun_recursive(FAR struct nsh_vtbl_s *vtbl,
+                               FAR const char *dirpath,
+                               FAR struct dirent *entryp,
+                               FAR void *pvarg)
+{
+  FAR char *path;
+  int ret = ERROR;
+
+  if (DIRENT_ISDIRECTORY(entryp->d_type))
+    {
+      return 0;
+    }
+
+  path = nsh_getdirpath(vtbl, dirpath, entryp->d_name);
+  if (path)
+    {
+      ret = cmd_rpmsg_once(vtbl, path, pvarg, cmd_rptun_cb);
+      free(path);
+    }
+
+  return ret;
+}
+
 int cmd_rptun(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
 {
   if (argc >= 2 && strcmp(argv[1], "-h") == 0)
@@ -673,10 +750,10 @@ int cmd_rptun(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
   if (strcmp(argv[2], "all") == 0)
     {
       return nsh_foreach_direntry(vtbl, "rptun", "/dev/rptun",
-                                  cmd_rpmsg_recursive, argv);
+                                  cmd_rptun_recursive, argv);
     }
 
-  return cmd_rpmsg_once(vtbl, argv[2], argv);
+  return cmd_rpmsg_once(vtbl, argv[2], argv, cmd_rptun_cb);
 }
 #endif
 
@@ -690,6 +767,7 @@ int cmd_uname(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
   FAR const char *str;
   struct lib_memoutstream_s stream;
   struct utsname info;
+  struct utsname output;
   unsigned int set;
   int option;
   bool badarg;
@@ -780,8 +858,7 @@ int cmd_uname(FAR struct nsh_vtbl_s *vtbl, int argc, FAR char **argv)
   /* Process each option */
 
   first = true;
-  lib_memoutstream(&stream, alloca(sizeof(struct utsname)),
-                   sizeof(struct utsname));
+  lib_memoutstream(&stream, (FAR char *)&output, sizeof(output));
   for (i = 0; set != 0; i++)
     {
       unsigned int mask = (1 << i);

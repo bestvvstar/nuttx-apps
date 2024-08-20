@@ -11,7 +11,7 @@ if INTERPRETERS_WAMR
 
 config INTERPRETERS_WAMR_VERSION
 	string "WAMR Version"
-	default "WAMR-04-15-2021"
+	default "WAMR-2.1.0"
 	---help---
 		Version WAMR-09-29-2020 and later (include main) supported.
 
@@ -46,6 +46,21 @@ config INTERPRETERS_WAMR_AOT_QUICK_ENTRY
 		AOTed function from host side in some cases with simple
 		signature.
 		Enable this option will increase the size of runtime, ~8KB.
+
+config INTERPRETERS_WAMR_AOT_STACK_FRAME
+	bool "Enable AOT stack frame"
+	default n
+	depends on INTERPRETERS_WAMR_AOT
+
+config INTERPRETERS_WAMR_AOT_WORD_ALIGN_READ
+	bool "Make WAMR AOT loader use word-aligned read"
+	default y if ARCH_HAVE_TEXT_HEAP_WORD_ALIGNED_READ
+	default n
+
+config INTERPRETERS_WAMR_MEM_DUAL_BUS_MIRROR
+	bool "Make WAMR AOT loader aware of separate instruction/data memory mapping"
+	default y if ARCH_HAVE_TEXT_HEAP_SEPARATE_DATA_ADDRESS
+	default n
 
 choice
 	prompt "Enable interpreter"
@@ -118,6 +133,10 @@ config INTERPRETERS_WAMR_REF_TYPES
 	bool "Enable reference types support"
 	default n
 
+config INTERPRETERS_WAMR_GC
+	bool "Enable GC support"
+	default n
+
 config INTERPRETERS_WAMR_ENABLE_SPEC_TEST
 	bool "Enable spectest support"
 	default n
@@ -172,6 +191,10 @@ config INTERPRETERS_WAMR_BULK_MEMORY
 	bool "Enable bluk memory"
 	default n
 
+config INTERPRETERS_WAMR_ENABLE_EXCE_HANDLING
+	bool "Enable exception-handling"
+	default n
+
 config INTERPRETERS_WAMR_PERF_PROFILING
 	bool "Enable performance profiling"
 	default n
@@ -190,7 +213,12 @@ config INTERPRETERS_WAMR_DUMP_CALL_STACK
 
 config INTERPRETERS_WAMR_DISABLE_HW_BOUND_CHECK
 	bool "Disable hardware bound check"
-	default n
+	default y
+	---help---
+		This option is currently a no-op because
+		NuttX doesn't have necessary functionalities.
+		That is, regardless of this setting, WAMR's HW bounds
+		check is not available for NuttX.
 
 config INTERPRETERS_WAMR_LOAD_CUSTOM_SECTIONS
 	bool "Enable load custom section support"
