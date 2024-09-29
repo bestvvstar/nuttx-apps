@@ -77,27 +77,30 @@ CXXOBJS = $(CXXSRCS:=$(SUFFIX)$(OBJEXT))
 RUSTOBJS = $(RUSTSRCS:=$(SUFFIX)$(OBJEXT))
 ZIGOBJS = $(ZIGSRCS:=$(SUFFIX)$(OBJEXT))
 DOBJS = $(DSRCS:=$(SUFFIX)$(OBJEXT))
+SWIFTOBJS = $(SWIFTSRCS:=$(SUFFIX)$(OBJEXT))
 
 MAINCXXSRCS = $(filter %$(CXXEXT),$(MAINSRC))
 MAINCSRCS = $(filter %.c,$(MAINSRC))
 MAINRUSTSRCS = $(filter %$(RUSTEXT),$(MAINSRC))
 MAINZIGSRCS = $(filter %$(ZIGEXT),$(MAINSRC))
 MAINDSRCS = $(filter %$(DEXT),$(MAINSRC))
+MAINSWIFTSRCS = $(filter %$(SWIFTEXT),$(MAINSRC))
 MAINCXXOBJ = $(MAINCXXSRCS:=$(SUFFIX)$(OBJEXT))
 MAINCOBJ = $(MAINCSRCS:=$(SUFFIX)$(OBJEXT))
 MAINRUSTOBJ = $(MAINRUSTSRCS:=$(SUFFIX)$(OBJEXT))
 MAINZIGOBJ = $(MAINZIGSRCS:=$(SUFFIX)$(OBJEXT))
 MAINDOBJ = $(MAINDSRCS:=$(SUFFIX)$(OBJEXT))
+MAINSWIFTOBJ = $(MAINSWIFTSRCS:=$(SUFFIX)$(OBJEXT))
 
 SRCS = $(ASRCS) $(CSRCS) $(CXXSRCS) $(MAINSRC)
-OBJS = $(RAOBJS) $(CAOBJS) $(COBJS) $(CXXOBJS) $(RUSTOBJS) $(ZIGOBJS) $(DOBJS) $(EXTOBJS)
+OBJS = $(RAOBJS) $(CAOBJS) $(COBJS) $(CXXOBJS) $(RUSTOBJS) $(ZIGOBJS) $(DOBJS) $(SWIFTOBJS) $(EXTOBJS)
 
 ifneq ($(BUILD_MODULE),y)
-  OBJS += $(MAINCOBJ) $(MAINCXXOBJ) $(MAINRUSTOBJ) $(MAINZIGOBJ) $(MAINDOBJ)
+  OBJS += $(MAINCOBJ) $(MAINCXXOBJ) $(MAINRUSTOBJ) $(MAINZIGOBJ) $(MAINDOBJ) $(MAINSWIFTOBJ)
 endif
 
 ifneq ($(strip $(PROGNAME)),)
-  PROGOBJ := $(MAINCOBJ) $(MAINCXXOBJ) $(MAINRUSTOBJ) $(MAINZIGOBJ) $(MAINDOBJ)
+  PROGOBJ := $(MAINCOBJ) $(MAINCXXOBJ) $(MAINRUSTOBJ) $(MAINZIGOBJ) $(MAINDOBJ) $(MAINSWIFTOBJ)
   PROGLIST := $(addprefix $(BINDIR)$(DELIM),$(PROGNAME))
   REGLIST := $(addprefix $(BUILTIN_REGISTRY)$(DELIM),$(addsuffix .bdat,$(PROGNAME)))
 
@@ -135,6 +138,7 @@ endif
 ZIGELFFLAGS ?= $(ZIGFLAGS)
 RUSTELFFLAGS ?= $(RUSTFLAGS)
 DELFFLAGS ?= $(DFLAGS)
+SWIFTELFFLAGS ?= $(SWIFTFLAGS)
 
 DEPPATH += --dep-path .
 DEPPATH += --obj-path .
@@ -185,6 +189,12 @@ define ELFCOMPILED
 	$(ECHO_END)
 endef
 
+define ELFCOMPILESWIFT
+	$(ECHO_BEGIN)"SWIFTC: $1 "
+	$(Q) $(SWIFTC) -c $(SWIFTELFFLAGS) $($(strip $1)_SWIFTELFFLAGS) $1 -o $2
+	$(ECHO_END)
+endef
+
 define ELFLD
 	$(ECHO_BEGIN)"LD: $2 "
 	$(Q) $(LD) $(LDELFFLAGS) $(LDLIBPATH) $(ARCHCRT0OBJ) $1 $(LDSTARTGROUP) $(LDLIBS) $(LDENDGROUP) -o $2
@@ -199,32 +209,36 @@ define RENAMEMAIN
 endef
 
 $(RAOBJS): %.s$(SUFFIX)$(OBJEXT): %.s
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(AELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(AELFFLAGS)), \
 		$(call ELFASSEMBLE, $<, $@), $(call ASSEMBLE, $<, $@))
 
 $(CAOBJS): %.S$(SUFFIX)$(OBJEXT): %.S
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(AELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(AELFFLAGS)), \
 		$(call ELFASSEMBLE, $<, $@), $(call ASSEMBLE, $<, $@))
 
 $(COBJS): %.c$(SUFFIX)$(OBJEXT): %.c
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CELFFLAGS)), \
 		$(call ELFCOMPILE, $<, $@), $(call COMPILE, $<, $@))
 
 $(CXXOBJS): %$(CXXEXT)$(SUFFIX)$(OBJEXT): %$(CXXEXT)
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CXXELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CXXELFFLAGS)), \
 		$(call ELFCOMPILEXX, $<, $@), $(call COMPILEXX, $<, $@))
 
 $(RUSTOBJS): %$(RUSTEXT)$(SUFFIX)$(OBJEXT): %$(RUSTEXT)
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CELFFLAGS)), \
 		$(call ELFCOMPILERUST, $<, $@), $(call COMPILERUST, $<, $@))
 
 $(ZIGOBJS): %$(ZIGEXT)$(SUFFIX)$(OBJEXT): %$(ZIGEXT)
-	$(if $(and $(CONFIG_BUILD_LOADABLE), $(CELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES), $(CELFFLAGS)), \
 		$(call ELFCOMPILEZIG, $<, $@), $(call COMPILEZIG, $<, $@))
 
 $(DOBJS): %$(DEXT)$(SUFFIX)$(OBJEXT): %$(DEXT)
-	$(if $(and $(CONFIG_BUILD_LOADABLE), $(CELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES), $(CELFFLAGS)), \
 		$(call ELFCOMPILED, $<, $@), $(call COMPILED, $<, $@))
+
+$(SWIFTOBJS): %$(SWIFTEXT)$(SUFFIX)$(OBJEXT): %$(SWIFTEXT)
+	$(if $(and $(CONFIG_MODULES), $(CELFFLAGS)), \
+		$(call ELFCOMPILESWIFT, $<, $@), $(call COMPILESWIFT, $<, $@))
 
 AROBJS :=
 ifneq ($(OBJS),)
@@ -249,22 +263,26 @@ endif
 ifeq ($(BUILD_MODULE),y)
 
 $(MAINCXXOBJ): %$(CXXEXT)$(SUFFIX)$(OBJEXT): %$(CXXEXT)
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CXXELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CXXELFFLAGS)), \
 		$(call ELFCOMPILEXX, $<, $@), $(call COMPILEXX, $<, $@))
 
 $(MAINCOBJ): %.c$(SUFFIX)$(OBJEXT): %.c
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CELFFLAGS)), \
 		$(call ELFCOMPILE, $<, $@), $(call COMPILE, $<, $@))
 
 $(MAINZIGOBJ): %$(ZIGEXT)$(SUFFIX)$(OBJEXT): %$(ZIGEXT)
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CELFFLAGS)), \
 		$(call ELFCOMPILEZIG, $<, $@), $(call COMPILEZIG, $<, $@))
 
 $(MAINDOBJ): %$(DEXT)$(SUFFIX)$(OBJEXT): %$(DEXT)
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CELFFLAGS)), \
 		$(call ELFCOMPILED, $<, $@), $(call COMPILED, $<, $@))
 
-$(PROGLIST): $(MAINCOBJ) $(MAINCXXOBJ) $(MAINRUSTOBJ) $(MAINZIGOBJ) $(MAINDOBJ)
+$(MAINSWIFTOBJ): %$(SWIFTEXT)$(SUFFIX)$(OBJEXT): %$(SWIFTEXT)
+	$(if $(and $(CONFIG_MODULES),$(CELFFLAGS)), \
+		$(call ELFCOMPILESWIFT, $<, $@), $(call COMPILESWIFT, $<, $@))
+
+$(PROGLIST): $(MAINCOBJ) $(MAINCXXOBJ) $(MAINRUSTOBJ) $(MAINZIGOBJ) $(MAINDOBJ) $(MAINSWIFTOBJ)
 	$(Q) mkdir -p $(BINDIR)
 	$(call ELFLD, $(PROGOBJ_$@), $(call CONVERT_PATH,$@))
 	$(Q) chmod +x $@
@@ -280,28 +298,32 @@ else
 $(MAINCXXOBJ): %$(CXXEXT)$(SUFFIX)$(OBJEXT): %$(CXXEXT)
 	$(eval $<_CXXFLAGS += ${shell $(DEFINE) "$(CXX)" main=$(addsuffix _main,$(PROGNAME_$@))})
 	$(eval $<_CXXELFFLAGS += ${shell $(DEFINE) "$(CXX)" main=$(addsuffix _main,$(PROGNAME_$@))})
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CXXELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CXXELFFLAGS)), \
 		$(call ELFCOMPILEXX, $<, $@), $(call COMPILEXX, $<, $@))
 
 $(MAINCOBJ): %.c$(SUFFIX)$(OBJEXT): %.c
 	$(eval $<_CFLAGS += ${DEFINE_PREFIX}main=$(addsuffix _main,$(PROGNAME_$@)))
 	$(eval $<_CELFFLAGS += ${DEFINE_PREFIX}main=$(addsuffix _main,$(PROGNAME_$@)))
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CELFFLAGS)), \
 		$(call ELFCOMPILE, $<, $@), $(call COMPILE, $<, $@))
 
 $(MAINRUSTOBJ): %$(RUSTEXT)$(SUFFIX)$(OBJEXT): %$(RUSTEXT)
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CELFFLAGS)), \
 		$(call ELFCOMPILERUST, $<, $@), $(call COMPILERUST, $<, $@))
 
 $(MAINZIGOBJ): %$(ZIGEXT)$(SUFFIX)$(OBJEXT): %$(ZIGEXT)
 	$(Q) $(call RENAMEMAIN, $<, $(basename $<)_tmp.zig)
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CELFFLAGS)), \
 			$(call ELFCOMPILEZIG, $(basename $<)_tmp.zig, $@), $(call COMPILEZIG, $(basename $<)_tmp.zig, $@))
 	$(Q) rm -f $(basename $<)_tmp.zig
 
 $(MAINDOBJ): %$(DEXT)$(SUFFIX)$(OBJEXT): %$(DEXT)
-	$(if $(and $(CONFIG_BUILD_LOADABLE),$(CELFFLAGS)), \
+	$(if $(and $(CONFIG_MODULES),$(CELFFLAGS)), \
 		$(call ELFCOMPILED, $<, $@), $(call COMPILED, $<, $@))
+
+$(MAINSWIFTOBJ): %$(SWIFTEXT)$(SUFFIX)$(OBJEXT): %$(SWIFTEXT)
+	$(if $(and $(CONFIG_MODULES),$(CELFFLAGS)), \
+		$(call ELFCOMPILESWIFT, $<, $@), $(call COMPILESWIFT, $<, $@))
 
 install::
 	@:

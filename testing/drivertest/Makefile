@@ -88,6 +88,14 @@ PROGNAME += cmocka_driver_i2c_spi
 endif
 endif
 
+ifneq ($(CONFIG_I2C_DRIVER)$(CONFIG_I2C_SLAVE_DRIVER),)
+MAINSRC  += drivertest_i2c_write.c
+PROGNAME += cmocka_driver_i2c_write
+
+MAINSRC  += drivertest_i2c_read.c
+PROGNAME += cmocka_driver_i2c_read
+endif
+
 ifneq ($(CONFIG_DEV_GPIO),)
 PROGNAME += cmocka_driver_gpio
 MAINSRC  += drivertest_gpio.c
@@ -126,6 +134,18 @@ endif
 ifneq ($(CONFIG_LV_USE_NUTTX_TOUCHSCREEN),)
 MAINSRC  += drivertest_touchpanel.c
 PROGNAME += cmocka_driver_touchpanel
+endif
+
+ifeq ($(CONFIG_ARCH_CHIP_MPS2_AN500),y)
+ifeq ($(CONFIG_ARCH_IRQPRIO),y)
+MAINSRC  += drivertest_mps2.c
+PROGNAME += cmocka_driver_mps2
+endif
+endif
+
+ifneq ($(CONFIG_PM),)
+MAINSRC  += drivertest_pm.c
+PROGNAME += cmocka_driver_pm
 endif
 
 ifneq ($(CONFIG_PM_RUNTIME),)

@@ -1,4 +1,6 @@
 *.a
+*.dbo
+*.dba
 *.adb
 *.asm
 *.dSYM
@@ -42,3 +44,4 @@ Make.dep
 build
 .ccls-cache
 compile_commands.json
+.aider*
